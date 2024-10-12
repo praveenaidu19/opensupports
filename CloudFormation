@@ -1,0 +1,174 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to provision EC2, RDS, S3, VPC, IAM roles, and CloudWatch for a multi-environment setup.
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment type (e.g. dev, prod)
+    AllowedValues: 
+      - dev
+      - prod
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    Description: EC2 instance type
+  DBUsername:
+    Type: String
+    NoEcho: true
+    Description: RDS MySQL Database Username
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: RDS MySQL Database Password
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    Description: RDS instance class
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: 10.0.0.0/16
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-VPC"
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-Public-Subnet"
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-Private-Subnet"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-InternetGateway"
+
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  EC2InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP and SSH traffic
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      SecurityGroupIds:
+        - !Ref EC2InstanceSecurityGroup
+      SubnetId: !Ref PublicSubnet
+      ImageId: ami-0c55b159cbfafe1f0  # Replace with actual AMI ID
+      Tags:
+        - Key: Name
+          Value: !Sub "${Environment}-EC2-Instance"
+
+  RDSInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow MySQL access
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBName: !Sub "${Environment}DB"
+      AllocatedStorage: 20
+      DBInstanceClass: !Ref DBInstanceClass
+      Engine: MySQL
+      EngineVersion: '8.0'
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      VPCSecurityGroups:
+        - !Ref RDSInstanceSecurityGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Subnet group for RDS"
+      SubnetIds:
+        - !Ref PrivateSubnet
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${Environment}-static-files-bucket"
+      VersioningConfiguration:
+        Status: Enabled
+
+  CloudWatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/${Environment}/app-logs"
+      RetentionInDays: 7
+
+  IAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: !Sub "${Environment}-ec2-policy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:*
+                Resource: !Sub "arn:aws:s3:::${Environment}-static-files-bucket/*"
+              - Effect: Allow
+                Action: logs:*
+                Resource: !Sub "arn:aws:logs:*:*:log-group:/aws/${Environment}/app-logs"
+
+Outputs:
+  EC2InstancePublicIP:
+    Description: The public IP of the EC2 instance
+    Value: !GetAtt EC2Instance.PublicIp
+  RDSInstanceEndpoint:
+    Description: The endpoint of the RDS instance
+    Value: !GetAtt RDSInstance.Endpoint.Address
+  S3BucketName:
+    Description: The S3 bucket name for static file storage
+    Value: !Ref S3Bucket
