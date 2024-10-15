@@ -1,0 +1,54 @@
+Description: CloudFormation template to create an RDS MySQL instance for the application.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    Description: Environment name (dev, staging, prod)
+  DBUsername:
+    Type: String
+    NoEcho: true
+    Description: The database admin account username.
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: The database admin account password.
+  DBName:
+    Type: String
+    Default: appdb
+    Description: The database name.
+  DBInstanceClass:
+    Type: String
+    Default: db.t2.micro
+    Description: The database instance type.
+
+Resources:
+  MyRDS:
+    Type: AWS::RDS::DBInstance
+    Properties: 
+      DBInstanceClass: !Ref DBInstanceClass
+      Engine: MySQL
+      MasterUsername: admin
+      MasterUserPassword: admin
+      DBName: !Ref DBName
+      AllocatedStorage: 20
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      MultiAZ: false
+      PubliclyAccessible: false
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS Security Group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref ApplicationSecurityGroup
+
+Outputs:
+  RDSInstanceEndpoint:
+    Description: The database endpoint
+    Value: !GetAtt MyRDS.Endpoint.Address
