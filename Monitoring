@@ -1,0 +1,33 @@
+Description: CloudFormation template to create CloudWatch alarms and logs for monitoring.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    Description: Environment name (dev, staging, prod)
+  EC2InstanceId:
+    Type: String
+    Description: EC2 Instance ID to monitor.
+
+Resources:
+  CPUAlarmHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: 'Alarm if CPU exceeds 80%'
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: '300'
+      EvaluationPeriods: '1'
+      Threshold: '80'
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlarmTopic
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref EC2InstanceId
+
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'CPUAlarmTopic-${EnvironmentName}'
